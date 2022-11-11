@@ -16,6 +16,7 @@ int main(int argc, char const *argv[])
     Decoder jpegDecoder;
 		
     jpegDecoder.open(fileName);
-
+    jpegDecoder.decode();
+    
     return 0;
 }

@@ -1,11 +1,14 @@
 .vscode
 
-test.txt
-
 build/
 
-.ccls
+*.ccls
 
 *.out
 
 *.vim
+
+*.txt
+
+*.jpg
+*.jpeg
