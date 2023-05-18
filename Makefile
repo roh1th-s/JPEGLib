@@ -1,11 +1,11 @@
 CC=g++
 CLAGS=-Wall
 
-LIB=
+LIB=-lws2_32
 INC=-I./include
 
 SRC_DIR=src
-BUILD_DIR = build
+BUILD_DIR=build
 
 TARGET = $(BUILD_DIR)/main
 

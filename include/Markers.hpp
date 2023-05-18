@@ -7,7 +7,6 @@
 
 namespace Markers
 {
-
     // Null byte
     const uint8_t JFIF_BYTE_0 = 0x00;
 

@@ -1,6 +1,5 @@
-#include <winsock2.h> // htons
-
 #include "Decoder.hpp"
+#include "Util.hpp"
 #include "Markers.hpp"
 
 Decoder::Decoder()
@@ -21,14 +20,13 @@ void Decoder::open(std::string fileName)
         return;
     }
 }
+
 void Decoder::decode()
 {
     uint8_t byte;
     while (m_ImageFile.good())
     {
         m_ImageFile >> std::noskipws >> byte;
-
-        std::cout << byte;
 
         if (byte == Markers::JFIF_BYTE_FF)
         {
@@ -37,7 +35,10 @@ void Decoder::decode()
             // choose decoding function based on the byte after ff
             Decoder::Result result = parseSegment(byte);
 
-            if (result == TERMINATE) {
+            std::cout << "\n";
+
+            if (result == TERMINATE)
+            {
                 std::cout << "Error decoding file, terminating decoder.";
                 return;
             }
@@ -132,16 +133,16 @@ void Decoder::decodeAPP0Segment()
 
     uint16_t length;
     m_ImageFile.read(reinterpret_cast<char *>(&length), 2);
-    length = htons(length); // convert little endian to big endian
+    length = swap_bytes(length); // bytes are stored as big endian, convert to little 
 
     // skip JFIF\0 string
     m_ImageFile.seekg(5, std::ios_base::cur);
 
     uint16_t jfifVersion;
-    m_ImageFile >> std::noskipws >> jfifVersion;
+    m_ImageFile.read(reinterpret_cast<char *>(&jfifVersion), 2);
 
     std::cout << "JFIF Version : " << (int)(jfifVersion >> 8) << "."
-              << (int)((jfifVersion & 0x00FF) >> 4) << (int)(jfifVersion & 0x000F) << std::endl;
+              << (int)((jfifVersion & 0x00F0) >> 4) << (int)(jfifVersion & 0x000F) << std::endl;
 
     uint8_t densityUnitByte;
     m_ImageFile >> std::noskipws >> densityUnitByte;
@@ -163,19 +164,25 @@ void Decoder::decodeAPP0Segment()
     std::cout << "Image density unit: " << densityUnit << std::endl;
 
     uint16_t horizontalPixelDensity;
-    m_ImageFile >> std::noskipws >> horizontalPixelDensity;
-    horizontalPixelDensity = htons(horizontalPixelDensity); // little -> big endian
+    m_ImageFile.read(reinterpret_cast<char *>(&horizontalPixelDensity), 2);
+    horizontalPixelDensity = swap_bytes(horizontalPixelDensity);
 
     uint16_t verticalPixelDensity;
-    m_ImageFile >> std::noskipws >> verticalPixelDensity;
-    verticalPixelDensity = htons(verticalPixelDensity); // little -> big endian
+    m_ImageFile.read(reinterpret_cast<char *>(&verticalPixelDensity), 2);
+    verticalPixelDensity = swap_bytes(verticalPixelDensity);
 
+    std::cout << "Pixel density: " << horizontalPixelDensity << "x" << verticalPixelDensity << std::endl;
     uint8_t horizontalPixelCount, verticalPixelCount;
     m_ImageFile >> std::noskipws >> horizontalPixelCount >> verticalPixelCount;
 
     // thumbnail data : packed - 24 bit for each pixel (3 channels)
-    uint8_t *thumbnailData = new uint8_t(3 * horizontalPixelCount * verticalPixelCount);
-    m_ImageFile.read(reinterpret_cast<char *>(thumbnailData), 3 * horizontalPixelCount * verticalPixelCount);
+    uint16_t thumbnailDataSize = 3 * horizontalPixelCount * verticalPixelCount;
+
+    if (thumbnailDataSize > 0)
+    {
+        uint8_t *thumbnailData = new uint8_t(thumbnailDataSize);
+        m_ImageFile.read(reinterpret_cast<char *>(thumbnailData), 3 * horizontalPixelCount * verticalPixelCount);
+    }
 
     std::cout << "APP-0 segment parsed successfully." << std::endl;
 }
@@ -192,8 +199,8 @@ void Decoder::decodeCOMSegment()
     std::cout << "Parsing comment segment." << std::endl;
 
     uint16_t length;
-    m_ImageFile >> std::noskipws >> length;
-    length = htons(length); // little -> big endian
+    m_ImageFile.read(reinterpret_cast<char *>(&length), 2);
+    length = swap_bytes(length);
 
     std::cout << "Comment segment length: " << length;
 
@@ -220,10 +227,10 @@ void Decoder::decodeDQTSegment()
     std::cout << "Parsing DQT segment." << std::endl;
 
     uint16_t length;
-    m_ImageFile >> std::noskipws >> length;
-    length = htons(length); // little -> big endian
+    m_ImageFile.read(reinterpret_cast<char *>(&length), 2);
+    length = swap_bytes(length);
 
-    std::cout << "DQT Segment length: " << length;
+    std::cout << "DQT Segment length: " << length << std::endl;
 
     length -= 2; // marker bytes included in length
 
@@ -235,7 +242,7 @@ void Decoder::decodeDQTSegment()
         int precision = qt_info >> 4;
         int qt_n = qt_info & 0x0F; // Quantization table number
 
-        std::cout << "QT no: " << qt_n << " Precision: " << (precision == 0 ? "8-bit" : "16-bit");
+        std::cout << "QT no: " << qt_n << ", Precision: " << (precision == 0 ? "8-bit" : "16-bit") << std::endl;
 
         uint8_t *qt_data = new uint8_t[64];
         m_ImageFile.read(reinterpret_cast<char *>(qt_data), 64);
@@ -244,6 +251,67 @@ void Decoder::decodeDQTSegment()
 
         length -= 65;
     }
+
+    std::cout << "Successfully parsed DQT segment." << std::endl;
+}
+
+void Decoder::decodeDHTSegment()
+{
+    // make sure file is still good to read
+    if (!(m_ImageFile.is_open() && m_ImageFile.good()))
+    {
+        std::cout << "Error parsing file" << std::endl;
+        return;
+    }
+
+    std::cout << "Parsing DHT segment." << std::endl;
+
+    uint16_t length;
+    m_ImageFile.read(reinterpret_cast<char *>(&length), 2);
+    length = swap_bytes(length);
+
+    std::cout << "DHT Segment length: " << length;
+
+    length -= 2; // marker bytes included in length
+
+    int endOfSegment = (int)m_ImageFile.tellg() + length;
+
+    while (m_ImageFile.tellg() < endOfSegment)
+    {
+        uint8_t ht_info;
+
+        m_ImageFile >> std::noskipws >> ht_info;
+
+        int ht_type = ht_info >> 4;
+        int ht_no = ht_info & 0x0F;
+
+        int total_sym_count = 0;
+
+        for (int i = 1; i <= 16; i++)
+        {
+            uint8_t sym_count;
+            m_ImageFile >> std::noskipws >> sym_count;
+
+            // TODO: Keep track of this count somewhere
+            total_sym_count += (int)sym_count;
+        }
+
+        int syms = 0;
+        for (auto i = 0; syms < total_sym_count;)
+        {
+            uint8_t code;
+            m_ImageFile >> std::noskipws >> code;
+
+            // TODO: Put this into the huffman table
+            syms++;
+
+            // TODO: If all symbols for current symbol length i are read, i++
+        }
+
+        // TODO: construct huffman tree and store it
+    }
+
+    std::cout << "Successfully parsed Huffman table segment." << std::endl;
 }
 
 Decoder::Result Decoder::decodeSOF0Segment()
@@ -258,10 +326,10 @@ Decoder::Result Decoder::decodeSOF0Segment()
     std::cout << "Parsing Frame-0 segment." << std::endl;
 
     uint16_t length;
-    m_ImageFile >> std::noskipws >> length;
-    length = htons(length); // little -> big endian
+    m_ImageFile.read(reinterpret_cast<char *>(&length), 2);
+    length = swap_bytes(length);
 
-    std::cout << "SOF-0 Segment length: " << length;
+    std::cout << "SOF-0 Segment length: " << length << std::endl;
 
     length -= 2; // marker bytes included in length
 
@@ -271,23 +339,25 @@ Decoder::Result Decoder::decodeSOF0Segment()
     std::cout << "SOF-0 segment data precision: " << (int)precision << std::endl;
 
     uint16_t image_height, image_width;
-    m_ImageFile >> std::noskipws >> image_height >> image_width;
-    image_height = htons(image_height);
-    image_width = htons(image_width);
+    m_ImageFile.read(reinterpret_cast<char *>(&image_height), 2);
+    m_ImageFile.read(reinterpret_cast<char *>(&image_width), 2);
+    image_height = swap_bytes(image_height);
+    image_width = swap_bytes(image_width);
 
     std::cout << "Image height: " << (int)image_height
-        << " Image width: " << (int)image_width << std::endl;
+              << " Image width: " << (int)image_width << std::endl;
 
     uint8_t n_components;
     m_ImageFile >> std::noskipws >> n_components;
 
-    std::cout<< "No. of components: " << (int)n_components << std::endl;
+    std::cout << "No. of components: " << (int)n_components << std::endl;
 
     uint8_t comp, sampling_factor, qt_n;
 
-    bool chroma_ss = false; //flag for presence of chroma subsampling
+    bool chroma_ss = false; // flag for presence of chroma subsampling
 
-    for(auto i = 0; i < n_components; i++) {
+    for (auto i = 0; i < n_components; i++)
+    {
         m_ImageFile >> std::noskipws >> comp >> sampling_factor >> qt_n;
 
         int sf_horizontal = (int)(sampling_factor >> 4);
@@ -297,12 +367,14 @@ Decoder::Result Decoder::decodeSOF0Segment()
         std::cout << "Sampling Factor, Horizontal: " << sf_horizontal << ", Vertical: " << sf_vertical << std::endl;
         std::cout << "Quantization table no.: " << (int)qt_n << std::endl;
 
-        if (!(sf_horizontal == 1 && sf_vertical == 1)) {
+        if (!(sf_horizontal == 1 && sf_vertical == 1))
+        {
             chroma_ss = true;
         }
     }
 
-    if (chroma_ss) {
+    if (chroma_ss)
+    {
         std::cout << "Chroma subsampling is not supported." << std::endl;
         return TERMINATE;
     }
@@ -312,7 +384,8 @@ Decoder::Result Decoder::decodeSOF0Segment()
     return SUCCESS;
 }
 
-void Decoder::decodeSOSSegment() {
+void Decoder::decodeSOSSegment()
+{
     // make sure file is still good to read
     if (!(m_ImageFile.is_open() && m_ImageFile.good()))
     {
@@ -323,8 +396,8 @@ void Decoder::decodeSOSSegment() {
     std::cout << "Parsing SOS segment." << std::endl;
 
     uint16_t length;
-    m_ImageFile >> std::noskipws >> length;
-    length = htons(length); // little -> big endian
+    m_ImageFile.read(reinterpret_cast<char *>(&length), 2);
+    length = swap_bytes(length);
 
     std::cout << "SOS Segment length: " << length;
 
@@ -333,11 +406,12 @@ void Decoder::decodeSOSSegment() {
     uint8_t n_component;
     m_ImageFile >> std::noskipws >> n_component;
 
-    uint8_t c_id, c_ht; //Component ID, Huffman table for component
+    uint8_t c_id, c_ht; // Component ID, Huffman table for component
 
-    for (auto i = 0; i < n_component; i++) {
+    for (auto i = 0; i < n_component; i++)
+    {
         m_ImageFile >> std::noskipws >> c_id >> c_ht;
-        //TODO: Check if these bytes are the other way around
+        // TODO: Check if these bytes are the other way around
 
         int dc_ht = (int)(c_ht >> 4);
         int ac_ht = (int)(c_ht & 0x0F);
@@ -350,10 +424,10 @@ void Decoder::decodeSOSSegment() {
 
     std::cout << "Successfully parsed SOS segment." << std::endl;
 
-    //Image data immediately follows the SOS segment
+    // Image data immediately follows the SOS segment
     decodeImageData();
 }
 
-void Decoder::decodeImageData() {
-
+void Decoder::decodeImageData()
+{
 }
