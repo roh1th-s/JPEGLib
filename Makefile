@@ -1,30 +1,68 @@
-CC=g++
-CLAGS=-Wall
+# Compiler
+CXX := g++
+CXXFLAGS := -Wall -g -MMD -MP
+CPPFLAGS := -I./include -I./vendor
 
-LIB=-lws2_32
-INC=-I./include
+# Directories
+SRC_DIR := src
+TEST_DIR := tests
+BUILD_DIR := build
 
-SRC_DIR=src
-BUILD_DIR=build
+# Platform-specific settings
+ifeq ($(OS),Windows_NT)
+    EXE := .exe
+    LDLIBS := -lws2_32
+    MKDIR_P := mkdir
+    RM := rmdir /S /Q
+else
+    EXE :=
+    LDLIBS :=
+    MKDIR_P := mkdir -p
+    RM := rm -rf
+endif
 
-TARGET = $(BUILD_DIR)/main
+# Targets
+TARGET := $(BUILD_DIR)/main$(EXE)
+TEST_TARGET := $(BUILD_DIR)/test_runner$(EXE)
 
-SOURCES     := $(wildcard $(SRC_DIR)/*.cpp)
-OBJECTS     := $(patsubst $(SRC_DIR)/%,$(BUILD_DIR)/%,$(SOURCES:.cpp=.o))
+# Sources and objects
+SOURCES := $(wildcard $(SRC_DIR)/*.cpp)
+OBJECTS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SOURCES))
 
-dir_guard=@mkdir -p $(@D)
+LIB_SOURCES := $(filter-out $(SRC_DIR)/main.cpp,$(SOURCES))
+LIB_OBJECTS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(LIB_SOURCES))
 
-.phony: all clean
+TEST_SOURCES := $(wildcard $(TEST_DIR)/*.cpp)
+TEST_OBJECTS := $(patsubst $(TEST_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(TEST_SOURCES))
+
+# Collect generated header dependency files (.d)
+DEPS := $(OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d)
+
+.PHONY: all clean test
 
 all: $(TARGET)
-	
-$(TARGET): $(OBJECTS)
-	$(dir_guard)
-	$(CC) $(CFLAGS) $^ -o $@ $(LIB) 
 
-$(BUILD_DIR)/%.o : $(SRC_DIR)/%.cpp
-	$(dir_guard)
-	$(CC) $(CFLAGS) $(INC) -c $^ -o $@ 
+$(TARGET): $(OBJECTS)
+	@$(MKDIR_P) $(@D)
+	$(CXX) $^ -o $@ $(LDLIBS)
+
+$(TEST_TARGET): $(TEST_OBJECTS) $(LIB_OBJECTS)
+	@$(MKDIR_P) $(@D)
+	$(CXX) $^ -o $@ $(LDLIBS)
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
+	@$(MKDIR_P) $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(TEST_DIR)/%.cpp
+	@$(MKDIR_P) $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+# Auto-include generated dependency files
+-include $(DEPS)
+
+test: $(TEST_TARGET)
+	./$(TEST_TARGET)
 
 clean:
-	rm -rf $(BUILD_DIR)
+	$(RM) $(BUILD_DIR)

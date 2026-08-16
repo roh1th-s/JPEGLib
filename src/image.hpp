@@ -3,21 +3,20 @@
 
 #include <vector>
 
-#include "Pixel.hpp"
-#include "Util.hpp"
+#include "pixel.hpp"
+#include "util.hpp"
 
-class Image
-{
-public:
+class Image {
+  public:
     Image();
     ~Image();
 
     uint32_t width;
     uint32_t height;
-    
-    std::vector<std::vector<Pixel>> m_data;
-private:
 
+    std::vector<std::vector<Pixel>> m_data;
+
+  private:
 };
 
 #endif
