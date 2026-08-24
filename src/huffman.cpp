@@ -4,56 +4,55 @@
 
 // HuffmanNode
 std::shared_ptr<HuffmanNode> HuffmanNode::getNextOnLevel() const {
-    if (this->m_parent.expired())
+    if (this->parent.expired())
         return nullptr;
 
-    auto parent = this->m_parent.lock();
+    auto parent = this->parent.lock();
 
-    if (this == parent->m_left.get()) {
+    if (this == parent->left.get()) {
         // if this is a left child, return right child
-        return parent->m_right;
+        return parent->right;
     }
 
     auto nextOnParentsLevel = parent->getNextOnLevel();
     if (!nextOnParentsLevel) {
         return nullptr;
     } else {
-        return nextOnParentsLevel->m_left;
+        return nextOnParentsLevel->left;
     }
 }
 
 std::shared_ptr<HuffmanNode> HuffmanNode::insertLeftChild() {
-    if (this->m_left)
-        return this->m_left;
+    if (this->left)
+        return this->left;
 
     auto child = std::make_shared<HuffmanNode>();
-    child->m_parent = shared_from_this();
+    child->parent = shared_from_this();
 
-    this->m_left = child;
+    this->left = child;
 
     return child;
 }
 
 std::shared_ptr<HuffmanNode> HuffmanNode::insertRightChild() {
-    if (this->m_right)
-        return this->m_right;
+    if (this->right)
+        return this->right;
 
     auto child = std::make_shared<HuffmanNode>();
-    child->m_parent = shared_from_this();
+    child->parent = shared_from_this();
 
-    this->m_right = child;
+    this->right = child;
 
     return child;
 }
 
 // HuffmanTree
-
+// Tree logic only for debug and testing purposes, not used in actual decoding
 HuffmanTree::HuffmanTree() {
     auto root = std::make_shared<HuffmanNode>();
-    this->m_root = root;
+    this->root = root;
 }
 
-// expects jfif data as <16 bytes of symbol count> <n bytes of symbols>
 std::shared_ptr<HuffmanTree> HuffmanTree::fromJfifData(std::vector<uint8_t> dht_data) {
     int curr_idx = 0;
 
@@ -76,12 +75,12 @@ std::shared_ptr<HuffmanTree> HuffmanTree::fromJfifData(std::vector<uint8_t> dht_
     // build huffman tree
 
     auto tree = std::make_shared<HuffmanTree>();
-    auto root = tree->m_root;
+    auto root = tree->root;
 
     root->insertLeftChild();
     root->insertRightChild();
 
-    auto leftmost = root->m_left;
+    auto leftmost = root->left;
 
     // track sym_idx across all symbol lengths
     int sym_idx = 0;
@@ -95,7 +94,7 @@ std::shared_ptr<HuffmanTree> HuffmanTree::fromJfifData(std::vector<uint8_t> dht_
             for (; sym_idx < end_idx; sym_idx++) {
                 uint8_t symbol = syms[sym_idx];
 
-                leftmost->m_symbol = symbol;
+                leftmost->symbol = symbol;
 
                 leftmost = leftmost->getNextOnLevel();
             }
@@ -111,7 +110,7 @@ std::shared_ptr<HuffmanTree> HuffmanTree::fromJfifData(std::vector<uint8_t> dht_
         current->insertLeftChild();
         current->insertRightChild();
 
-        leftmost = current->m_left;
+        leftmost = current->left;
 
         while ((current = current->getNextOnLevel())) {
             if (!current)
@@ -125,6 +124,37 @@ std::shared_ptr<HuffmanTree> HuffmanTree::fromJfifData(std::vector<uint8_t> dht_
     return tree;
 }
 
-std::vector<uint8_t> HuffmanTree::decodeData() {
-    // compiler should prevent copying when returning a vector
+// HuffmanTable
+// expects jfif data as <16 bytes of symbol count> <n bytes of symbols>
+std::shared_ptr<HuffmanTable> HuffmanTable::fromJfifData(std::vector<uint8_t> dht_data) {
+    int curr_idx = 0;
+
+    auto h_table = std::make_shared<HuffmanTable>();
+
+    uint16_t current_code = 0;
+    int total_syms = 0;
+
+    for (int sym_len = 1; sym_len <= 16; sym_len++) {
+        uint8_t sym_count = dht_data[curr_idx++];
+
+        if (sym_count > 0) {
+            h_table->valptr[sym_len] = total_syms;
+            h_table->mincode[sym_len] = current_code;
+            h_table->maxcode[sym_len] = current_code + sym_count - 1;
+            total_syms += sym_count;
+        } else {
+            h_table->valptr[sym_len] = -1;
+            h_table->mincode[sym_len] = 0xFFFFFFFF;
+            h_table->maxcode[sym_len] = 0xFFFFFFFF;
+        }
+
+        current_code = (current_code + sym_count) << 1;
+    }
+
+    for (int i = 0; i < total_syms; i++) {
+        uint8_t sym = dht_data[curr_idx++];
+        h_table->huffval.push_back(sym);
+    }
+
+    return h_table;
 }
