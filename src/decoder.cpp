@@ -316,7 +316,7 @@ void Decoder::decodeDHTSegment() {
 
         auto tree = HuffmanTree::fromJfifData(dht_payload);
 
-        m_huffmanTables[ht_type][ht_no] = tree;
+        m_huffmanTables[ht_type][ht_no] = HuffmanTable::fromHuffmanTree(tree);
     }
 
     std::cout << "Successfully parsed Huffman table segment." << std::endl;

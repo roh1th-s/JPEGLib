@@ -24,7 +24,7 @@ class Decoder {
   private:
     // Handle to the image data being decoded
     std::ifstream m_ImageFile;
-    std::shared_ptr<HuffmanTree> m_huffmanTables[2][4] = {};
+    std::shared_ptr<HuffmanTable> m_huffmanTables[2][4] = {};
 
     // Parse appropriate segment from byte
     Result parseSegment(uint8_t byte);
