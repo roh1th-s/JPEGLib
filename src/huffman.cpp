@@ -1,4 +1,5 @@
 #include "huffman.hpp"
+#include "bitreader.hpp"
 #include <cstdint>
 #include <memory>
 
@@ -144,8 +145,8 @@ std::shared_ptr<HuffmanTable> HuffmanTable::fromJfifData(std::vector<uint8_t> dh
             total_syms += sym_count;
         } else {
             h_table->valptr[sym_len] = -1;
-            h_table->mincode[sym_len] = 0xFFFFFFFF;
-            h_table->maxcode[sym_len] = 0xFFFFFFFF;
+            h_table->mincode[sym_len] = -1;
+            h_table->maxcode[sym_len] = -1;
         }
 
         current_code = (current_code + sym_count) << 1;
@@ -157,4 +158,24 @@ std::shared_ptr<HuffmanTable> HuffmanTable::fromJfifData(std::vector<uint8_t> dh
     }
 
     return h_table;
+}
+
+uint8_t HuffmanTable::decodeBitstream(BitReader& bitReader) {
+    // try lengths in order
+    for (int len = 1; len <= 16; len++) {
+        // important that this is interpreted as signed int for maxcode comparison
+        int32_t code = bitReader.peek_bits(len);
+
+        // check h_table
+        if (code <= maxcode[len]) {
+            // consume bits
+            bitReader.consume_bits(len);
+
+            auto offset = valptr[len] + (code - mincode[len]);
+
+            return huffval[offset];
+        }
+    }
+
+    return -1;
 }

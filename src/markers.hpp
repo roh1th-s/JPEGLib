@@ -1,9 +1,7 @@
 #ifndef MARKERS_HPP
 #define MARKERS_HPP
 
-#include <string>
-
-#include "util.hpp"
+#include <cstdint>
 
 namespace Markers {
 // Null byte

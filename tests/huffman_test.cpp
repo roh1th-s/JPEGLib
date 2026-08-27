@@ -1,4 +1,3 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "../src/huffman.hpp"
 #include "doctest/doctest.h"
 #include <vector>

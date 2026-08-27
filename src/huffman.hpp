@@ -5,6 +5,8 @@
 #include <memory>
 #include <vector>
 
+#include "bitreader.hpp"
+
 struct HuffmanNode : public std::enable_shared_from_this<HuffmanNode> {
   public:
     HuffmanNode() = default;
@@ -32,13 +34,15 @@ struct HuffmanTable {
     std::vector<uint8_t> huffval;
 
     // these arrays define the range of codes for each length, mincode to maxcode
-    uint32_t mincode[17] = {0};
-    uint32_t maxcode[17] = {0};
+    int32_t mincode[17] = {0};
+    int32_t maxcode[17] = {0};
 
     // valptr[i] is the index of the first symbol of length i in huffval
     int32_t valptr[17] = {0};
 
     static std::shared_ptr<HuffmanTable> fromJfifData(std::vector<uint8_t>);
+
+    uint8_t decodeBitstream(BitReader& bitReader);
 };
 
 #endif // HUFFMAN_HPP

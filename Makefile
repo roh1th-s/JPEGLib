@@ -27,13 +27,13 @@ TEST_TARGET := $(BUILD_DIR)/test_runner$(EXE)
 
 # Sources and objects
 SOURCES := $(wildcard $(SRC_DIR)/*.cpp)
-OBJECTS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SOURCES))
+OBJECTS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/src/%.o,$(SOURCES))
 
 LIB_SOURCES := $(filter-out $(SRC_DIR)/main.cpp,$(SOURCES))
-LIB_OBJECTS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(LIB_SOURCES))
+LIB_OBJECTS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/src/%.o,$(LIB_SOURCES))
 
 TEST_SOURCES := $(wildcard $(TEST_DIR)/*.cpp)
-TEST_OBJECTS := $(patsubst $(TEST_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(TEST_SOURCES))
+TEST_OBJECTS := $(patsubst $(TEST_DIR)/%.cpp,$(BUILD_DIR)/tests/%.o,$(TEST_SOURCES))
 
 # Collect generated header dependency files (.d)
 DEPS := $(OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d)
@@ -50,11 +50,11 @@ $(TEST_TARGET): $(TEST_OBJECTS) $(LIB_OBJECTS)
 	@$(MKDIR_P) $(@D)
 	$(CXX) $^ -o $@ $(LDLIBS)
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
+$(BUILD_DIR)/src/%.o: $(SRC_DIR)/%.cpp
 	@$(MKDIR_P) $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/%.o: $(TEST_DIR)/%.cpp
+$(BUILD_DIR)/tests/%.o: $(TEST_DIR)/%.cpp
 	@$(MKDIR_P) $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 

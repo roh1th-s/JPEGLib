@@ -1,6 +1,10 @@
+#include <algorithm>
+#include <array>
 #include <iostream>
 #include <vector>
 
+#include "bitreader.hpp"
+#include "dct.hpp"
 #include "decoder.hpp"
 #include "huffman.hpp"
 #include "markers.hpp"
@@ -19,7 +23,7 @@ void Decoder::open(std::string fileName) {
     }
 }
 
-void Decoder::decode() {
+Decoder::Result Decoder::decode() {
     uint8_t byte;
     while (m_ImageFile.good()) {
         m_ImageFile >> std::noskipws >> byte;
@@ -34,10 +38,11 @@ void Decoder::decode() {
 
             if (result == TERMINATE) {
                 std::cout << "Error decoding file, terminating decoder.";
-                return;
+                return result;
             }
         }
     }
+    return SUCCESS;
 }
 
 Decoder::Result Decoder::parseSegment(uint8_t byte) {
@@ -147,7 +152,7 @@ void Decoder::decodeAPP0Segment() {
 
     uint16_t length;
     m_ImageFile.read(reinterpret_cast<char*>(&length), 2);
-    length = swap_bytes(length); // bytes are stored as big endian, convert to little
+    length = swapBytes(length); // bytes are stored as big endian, convert to little
 
     // skip JFIF\0 string
     m_ImageFile.seekg(5, std::ios_base::cur);
@@ -178,11 +183,11 @@ void Decoder::decodeAPP0Segment() {
 
     uint16_t horizontalPixelDensity;
     m_ImageFile.read(reinterpret_cast<char*>(&horizontalPixelDensity), 2);
-    horizontalPixelDensity = swap_bytes(horizontalPixelDensity);
+    horizontalPixelDensity = swapBytes(horizontalPixelDensity);
 
     uint16_t verticalPixelDensity;
     m_ImageFile.read(reinterpret_cast<char*>(&verticalPixelDensity), 2);
-    verticalPixelDensity = swap_bytes(verticalPixelDensity);
+    verticalPixelDensity = swapBytes(verticalPixelDensity);
 
     std::cout << "Pixel density: " << horizontalPixelDensity << "x" << verticalPixelDensity
               << std::endl;
@@ -212,7 +217,7 @@ void Decoder::decodeCOMSegment() {
 
     uint16_t length;
     m_ImageFile.read(reinterpret_cast<char*>(&length), 2);
-    length = swap_bytes(length);
+    length = swapBytes(length);
 
     std::cout << "Comment segment length: " << length << std::endl;
 
@@ -240,7 +245,7 @@ void Decoder::decodeDQTSegment() {
 
     uint16_t length;
     m_ImageFile.read(reinterpret_cast<char*>(&length), 2);
-    length = swap_bytes(length);
+    length = swapBytes(length);
 
     std::cout << "DQT Segment length: " << length << std::endl;
 
@@ -250,16 +255,13 @@ void Decoder::decodeDQTSegment() {
         uint8_t qt_info;
         m_ImageFile >> std::noskipws >> qt_info;
 
-        int precision = qt_info >> 4;
-        int qt_n = qt_info & 0x0F; // Quantization table number
+        uint8_t precision = qt_info >> 4;
+        uint8_t qt_n = qt_info & 0xF; // Quantization table number
 
-        std::cout << "QT no: " << qt_n << ", Precision: " << (precision == 0 ? "8-bit" : "16-bit")
-                  << std::endl;
+        std::cout << "QT no: " << (int)qt_n
+                  << ", Precision: " << (precision == 0 ? "8-bit" : "16-bit") << std::endl;
 
-        uint8_t qt_data[64];
-        m_ImageFile.read(reinterpret_cast<char*>(qt_data), 64);
-
-        // TODO: Keep track of these quantization tables somewhere
+        m_ImageFile.read(reinterpret_cast<char*>(m_quantizationTables[qt_n]), 64);
 
         length -= 65;
     }
@@ -274,11 +276,9 @@ void Decoder::decodeDHTSegment() {
         return;
     }
 
-    std::cout << "Parsing DHT segment." << std::endl;
-
     uint16_t length;
     m_ImageFile.read(reinterpret_cast<char*>(&length), 2);
-    length = swap_bytes(length);
+    length = swapBytes(length);
 
     std::cout << "DHT Segment length: " << length << std::endl;
 
@@ -316,6 +316,9 @@ void Decoder::decodeDHTSegment() {
 
         auto h_table = HuffmanTable::fromJfifData(dht_payload);
         m_huffmanTables[ht_type][ht_no] = h_table;
+
+        std::cout << "Parsed HT, ht_type: " << (ht_type == DHT_Type::DC ? "DC" : "AC")
+                  << ", ht_no: " << (int)ht_no << std::endl;
     }
 
     std::cout << "Successfully parsed Huffman table segment." << std::endl;
@@ -332,7 +335,7 @@ Decoder::Result Decoder::decodeSOF0Segment() {
 
     uint16_t length;
     m_ImageFile.read(reinterpret_cast<char*>(&length), 2);
-    length = swap_bytes(length);
+    length = swapBytes(length);
 
     std::cout << "SOF-0 Segment length: " << length << std::endl;
 
@@ -346,8 +349,11 @@ Decoder::Result Decoder::decodeSOF0Segment() {
     uint16_t image_height, image_width;
     m_ImageFile.read(reinterpret_cast<char*>(&image_height), 2);
     m_ImageFile.read(reinterpret_cast<char*>(&image_width), 2);
-    image_height = swap_bytes(image_height);
-    image_width = swap_bytes(image_width);
+    image_height = swapBytes(image_height);
+    image_width = swapBytes(image_width);
+
+    m_image.width = image_width;
+    m_image.height = image_height;
 
     std::cout << "Image height: " << (int)image_height << " Image width: " << (int)image_width
               << std::endl;
@@ -355,7 +361,13 @@ Decoder::Result Decoder::decodeSOF0Segment() {
     uint8_t n_components;
     m_ImageFile >> std::noskipws >> n_components;
 
+    m_image.n_components = n_components;
+
     std::cout << "No. of components: " << (int)n_components << std::endl;
+
+    if (m_componentSpec.size() < n_components) {
+        m_componentSpec.resize(n_components);
+    }
 
     uint8_t comp, sampling_factor, qt_n;
 
@@ -371,6 +383,8 @@ Decoder::Result Decoder::decodeSOF0Segment() {
         std::cout << "Sampling Factor, Horizontal: " << sf_horizontal
                   << ", Vertical: " << sf_vertical << std::endl;
         std::cout << "Quantization table no.: " << (int)qt_n << std::endl;
+
+        m_componentSpec[comp - 1].quant_table_no = qt_n;
 
         if (!(sf_horizontal == 1 && sf_vertical == 1)) {
             chroma_ss = true;
@@ -398,28 +412,35 @@ void Decoder::decodeSOSSegment() {
 
     uint16_t length;
     m_ImageFile.read(reinterpret_cast<char*>(&length), 2);
-    length = swap_bytes(length);
+    length = swapBytes(length);
 
-    std::cout << "SOS Segment length: " << length;
+    std::cout << "SOS Segment length: " << length << std::endl;
 
     length -= 2; // marker bytes included in length
 
-    uint8_t n_component;
-    m_ImageFile >> std::noskipws >> n_component;
+    uint8_t n_components;
+    m_ImageFile >> std::noskipws >> n_components;
+
+    if (m_componentSpec.size() < n_components) {
+        m_componentSpec.resize(n_components);
+    }
 
     uint8_t c_id, c_ht; // Component ID, Huffman table for component
 
-    for (auto i = 0; i < n_component; i++) {
+    for (auto i = 0; i < n_components; i++) {
         m_ImageFile >> std::noskipws >> c_id >> c_ht;
-        // TODO: Check if these bytes are the other way around
 
-        int dc_ht = (int)(c_ht >> 4);
-        int ac_ht = (int)(c_ht & 0x0F);
+        uint8_t dc_ht = (c_ht >> 4);
+        uint8_t ac_ht = (c_ht & 0x0F);
+
+        m_componentSpec[c_id - 1].ac_ht = ac_ht;
+        m_componentSpec[c_id - 1].dc_ht = dc_ht;
 
         std::cout << "Component ID: " << (int)c_id << std::endl;
-        std::cout << "Huffman table no.: DC-" << dc_ht << " AC-" << ac_ht << std::endl;
+        std::cout << "Huffman table no.: DC-" << (int)dc_ht << " AC-" << (int)ac_ht << std::endl;
     }
 
+    // skip 3 bytes mandatorily
     m_ImageFile.seekg(3, std::ios_base::cur);
 
     std::cout << "Successfully parsed SOS segment." << std::endl;
@@ -436,4 +457,143 @@ void Decoder::decodeImageData() {
     }
 
     std::cout << "Scanning image data" << std::endl;
+
+    uint8_t byte;
+
+    // Read all the image data into memory
+    while (m_ImageFile.good()) {
+        m_ImageFile >> std::noskipws >> byte;
+
+        if (byte == Markers::JFIF_BYTE_FF) {
+            m_ImageFile >> std::noskipws >> byte;
+            if (byte == Markers::JFIF_EOI) {
+                // Reached end of image
+                break;
+            } else if (byte == Markers::JFIF_BYTE_0) {
+                // FF 00 - byte stuffed FF
+                m_scanData.push_back(Markers::JFIF_BYTE_FF);
+            }
+        } else {
+            m_scanData.push_back(byte);
+        }
+    }
+
+    // start decoding
+    auto n_components = m_image.n_components;
+
+    int mcu_count = ((m_image.height + 7) / 8) * ((m_image.width + 7) / 8);
+
+    BitReader bit_reader(m_scanData);
+
+    // vector of MCUs with 3 components each
+    std::vector<std::array<std::array<int16_t, 64>, 3>> blocks(mcu_count);
+
+    // track it seperately per component, assuming 3 components here
+    std::array<int16_t, 3> current_dc = {0, 0, 0};
+
+    for (int mcu_idx = 0; mcu_idx < mcu_count; mcu_idx++) {
+        std::array<std::array<int16_t, 64>, 3>& current_mcu = blocks[mcu_idx];
+        // for each mcu, go through each component
+        for (int comp_idx = 0; comp_idx < n_components; comp_idx++) {
+            uint8_t dc_ht = m_componentSpec[comp_idx].dc_ht;
+            uint8_t ac_ht = m_componentSpec[comp_idx].ac_ht;
+
+            // DC Coefficient
+            uint8_t huff_code = m_huffmanTables[0][dc_ht]->decodeBitstream(bit_reader);
+
+            if (huff_code == 255) {
+                std::cerr << "ERROR: No valid huffman code found in bitstream";
+                return;
+            }
+
+            uint8_t val_categ = huff_code;
+            uint16_t bit_repr = bit_reader.read_bits(val_categ);
+            int16_t dc_diff = convertBitReprIntoValue(val_categ, bit_repr);
+
+            current_dc[comp_idx] += dc_diff;
+            current_mcu[comp_idx][0] = current_dc[comp_idx];
+
+            // AC coefficients
+            int ac_coeff_idx = 0;
+            while (ac_coeff_idx < 63) {
+                uint8_t huff_code = m_huffmanTables[1][ac_ht]->decodeBitstream(bit_reader);
+
+                if (huff_code == 255) {
+                    std::cerr << "ERROR: No valid huffman code found in bitstream";
+                    return;
+                }
+
+                if (huff_code == 0) {
+                    // EOB (End of block) encountered
+                    break;
+                }
+
+                uint8_t no_prev_zeroes = huff_code >> 4;
+                uint8_t val_categ = huff_code & 0xF;
+
+                if (no_prev_zeroes == 15 && val_categ == 0) {
+                    // handle 0xF0, (ZRL) case explicitly
+                    ac_coeff_idx += 16;
+                    continue;
+                }
+
+                if (no_prev_zeroes > 0) {
+                    ac_coeff_idx += no_prev_zeroes;
+                    // blocks array is already filled with zeroes by default
+                }
+
+                if (ac_coeff_idx >= 63 || val_categ == 0) {
+                    std::cerr << "ERROR: Invalid AC coefficient run";
+                    return;
+                }
+
+                uint16_t bit_repr = bit_reader.read_bits(val_categ);
+                int16_t ac_coeff = convertBitReprIntoValue(val_categ, bit_repr);
+
+                current_mcu[comp_idx][ac_coeff_idx + 1] = ac_coeff;
+                ac_coeff_idx++;
+            }
+
+            // dequantize
+            uint8_t quant_table_no = m_componentSpec[comp_idx].quant_table_no;
+            for (int i = 0; i < 64; i++) {
+                int coeff = current_mcu[comp_idx][i];
+                current_mcu[comp_idx][i] = coeff * m_quantizationTables[quant_table_no][i];
+            }
+
+            // undo zig zag transform
+            undoZigzagTransform(current_mcu[comp_idx]);
+
+            // inverse dct
+            std::array<int16_t, 64> mcu_out = {};
+            idct(current_mcu[comp_idx].data(), mcu_out.data());
+            current_mcu[comp_idx] = mcu_out;
+
+            // level shift
+            for (int i = 0; i < 64; i++) {
+                int value = current_mcu[comp_idx][i] + 128;
+                current_mcu[comp_idx][i] = std::clamp(value, 0, 255);
+            }
+        }
+
+        // assuming 3 components and that they are y, cb, cr
+        // convert to rgb
+
+        for (int i = 0; i < 64; i++) {
+            uint8_t y = current_mcu[0][i];
+            uint8_t cb = current_mcu[1][i];
+            uint8_t cr = current_mcu[2][i];
+
+            uint8_t r = std::clamp((int)(y + 1.402 * (cr - 128)), 0, 255);
+            uint8_t g =
+                std::clamp((int)(y - 0.344136 * (cb - 128) - 0.714136 * (cr - 128)), 0, 255);
+            uint8_t b = std::clamp((int)(y + 1.772 * (cb - 128)), 0, 255);
+
+            current_mcu[0][i] = r;
+            current_mcu[1][i] = g;
+            current_mcu[2][i] = b;
+        }
+    }
+
+    m_image.ingestFromMCU(blocks);
 }
